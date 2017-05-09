@@ -36,6 +36,19 @@ class Gauss_Wishart_probability_model:
         self.marginal_prec_lp = None #marginal posterior of the precision
 
     def __df(self, v, d):
+        '''sets the degrees of freedom for the model and deals with the cases where v is smaller than the number of dimensions.
+        parameters
+        --------
+        v:scalar quantity. int or float.
+        Represents the degrees of freedom of the precision
+        d: int
+        Dimensions of the model
+        
+         Returns
+         --------
+         df: int or float
+         Adjusted degrees of freedom.'''
+          
         if v<d:
             return d+1
         else:
