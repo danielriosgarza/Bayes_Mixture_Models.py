@@ -11,10 +11,14 @@ trm = linalg.get_blas_funcs('trmm')
 
 class Gaussian_component:
     
+    '''Deals with multiple measurements of a Gaussian variable random variable.'''
+    
     def __init__(self, d, kappa_0 = 0, v_0=0, mu_0=None, S_0=None, X=None, method='cov'):
         
         if X is None:
             self.n =0
+        elif d==1:
+            self.n = len(X.flatten())
         else:
             self.n=len(X)
         
@@ -41,6 +45,11 @@ class Gaussian_component:
         if X is None:
             self.X = self.GI.Xi
             self.X.shape=(1,self.d)
+        
+        elif d==1:
+            self.X = X
+            X.shape = (len(X.flatten()),1)
+            
         else:
             self.X = X 
         
@@ -89,17 +98,28 @@ class Gaussian_component:
 
 
     def __XX_T(self):
-        self.XX_T = np.einsum('ij, iz->jz', self.X, self.X)
+        if self.d==1:
+            self.XX_T = np.einsum('ij, ji->ij', self.X,self.X)
+        else:
+            self.XX_T = np.einsum('ij, iz->jz', self.X, self.X)
         return self.XX_T
         
     def __cov(self):
         if self.n is 0:
-            self.cov=self.GI._Gaussian_variable__cov()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
-            return self.cov
+            if self.d==1:
+                self.cov = self.GI._Gaussian_variable__cov()
+                return self.cov
+            else:
+                self.cov=self.GI._Gaussian_variable__cov() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
+                return self.cov
         else:
             
-            self.cov= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
-            return self.cov
+            if self.d==1:
+                self.cov = (self.GI._Gaussian_variable__cov() + np.var(self.X)).flatten()
+                return self.cov
+            else:
+                self.cov= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
+                return self.cov
             
     def __chol_cov(self):
         self.chol_cov= Cholesky(self.__cov()).lower()
