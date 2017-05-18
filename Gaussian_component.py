@@ -4,7 +4,6 @@ import math
 import scipy.linalg as linalg
 from Cholesky import Cholesky
 from Gaussian_variable import Gaussian_variable
-from Gauss_Wishart_probability_model import Gauss_Wishart_probability_model
 import random
 trm = linalg.get_blas_funcs('trmm')
 
@@ -122,16 +121,28 @@ class Gaussian_component:
                 return self.cov
             
     def __chol_cov(self):
-        self.chol_cov= Cholesky(self.__cov()).lower()
-        return self.chol_cov
+        if self.d==1:
+            self.chol_cov = self.__cov()
+            return self.chol_cov
+        else:
+            self.chol_cov= Cholesky(self.__cov()).lower()
+            return self.chol_cov
         
     def __prec(self):
-        self.prec= Cholesky(self.__cov()).inv()
-        return self.prec
+        if self.d==1:
+            self.prec = 1./self.__cov()
+            return self.prec
+        else:
+            self.prec= Cholesky(self.__cov()).inv()
+            return self.prec
     
     def __chol_prec(self):
-        self.chol_prec = Cholesky(self.__cov()).chol_of_the_inv()
-        return self.chol_prec
+        if self.d==1:
+            self.chol_prec = self.__prec()
+            return self.chol_prec
+        else:
+            self.chol_prec = Cholesky(self.__cov()).chol_of_the_inv()
+            return self.chol_prec
 
     
     def s_down_date(self, ind_X, cov=False, chol_cov=False, prec=False, chol_prec=False):
@@ -352,5 +363,14 @@ class Gaussian_component:
         s = {i:Gaussian_variable(self.d, mu=self.mu_rvs(), S = self.chol_prec_rvs(), method='chol_prec').rvs()[0] for i in xrange(n)}
         return np.array(s.values())
 
+    def __update_all(self):
+        self.__sX()
+        self.__mu()
+        self.__emp_mu()
+        self.__XX_T()
+        self.__cov()
+        self.__chol_cov()
+        self.__prec()
+        self.__chol_prec()
         
 
