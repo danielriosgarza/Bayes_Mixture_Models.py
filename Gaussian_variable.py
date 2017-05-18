@@ -28,6 +28,8 @@ class Gaussian_variable:
         self.method = method
         self.mu = self.__mu(mu)
         self.S = self.__S(S)
+        self.logp_=None
+        self.p_ = None
     
     def __mu(self,mu=None):
         if mu is None:
@@ -106,10 +108,13 @@ class Gaussian_variable:
         output than numpy or scipy's multivariate normal rvs, but has similar statistical properties.
         The algorithm is mentioned in the book 'Handbook of Monte Carlo Methods'
         from Kroese et al.(2011) (algorithm 5.2, pag. 155)'''
-               
-        m = self.__chol_prec().T
-        Z = np.random.standard_normal(size=(self.d,n))
-        return self.mu + linalg.solve_triangular(m, Z, lower=0, overwrite_b=1, check_finite=0).T
+        if self.d==0:
+            print "Can't generate rv from a 0 dimensional distribution"
+            return None       
+        else:
+            m = self.__chol_prec().T
+            Z = np.random.standard_normal(size=(self.d,n))
+            return self.mu + linalg.solve_triangular(m, Z, lower=0, overwrite_b=1, check_finite=0).T
 
     def logp(self):
         
@@ -121,19 +126,29 @@ class Gaussian_variable:
         Outputs
         --------
         logpdf estimate of Xi'''
+        if self.d==0:
+            self.logp_ = 0
+            return self.logp_
+        else:
+            
+            pm = self.__prec()
+            cpm = self.__chol_prec()
+            det = Cholesky(cpm).log_determinant(cpm)
+            delta = self.delta()
+            in_exp = delta.T.dot(pm).dot(delta)
         
-        pm = self.__prec()
-        cpm = self.__chol_prec()
-        det = Cholesky(cpm).log_determinant(cpm)
-        delta = self.delta()
-        in_exp = delta.T.dot(pm).dot(delta)
-        
-        
-        return (-0.5*self.d)*math.log(2*math.pi) + 0.5*det -0.5*in_exp
+            self.logp_ = (-0.5*self.d)*math.log(2*math.pi) + 0.5*det -0.5*in_exp
+            return self.logp_
     
     def p(self):
         '''returns the pdf estimate of Xi'''
-        return math.exp(self.logp())
+        if self.d==0:
+            self.p_=0
+            return self.p_
+        else:
+            
+            self.p_= math.exp(self.logp())
+            return self.p_
     
         
         
