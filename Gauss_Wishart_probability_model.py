@@ -6,14 +6,18 @@ from Cholesky import Cholesky
 import random
 trm = linalg.get_blas_funcs('trmm')
 from scipy.special import gammaln as gamlog
+from Gaussian_component import Gaussian_component
 
 
 
-
-class Gauss_Wishart_probability_model:
+class Gauss_Wishart_model:
     '''Probability distributions for a Bayesian Normal Wishart probability model.'''
     
-    def __init__(self):
+    def __init__(self, Gaussian_component):
+        self.GaussComp = Gaussian_component
+        self.GaussComp._Gaussian_component__update_all() 
+        self.d = self.GaussComp.d
+        self.n = self.GaussComp.n
         self.prec_mu_norm_Z = None #normalizing constant of the prior probability
         self.prec_norm_Z = None #normalizing constant of the prior probability of the precision matrix
         self.mu_norm_Z = None #normalizing constant of the prior probability of the mean
@@ -35,26 +39,38 @@ class Gauss_Wishart_probability_model:
         self.marginal_mu_lp = None #marginal posterior of the mean
         self.marginal_prec_lp = None #marginal posterior of the precision
 
-    def __df(self, v, d):
-        '''sets the degrees of freedom for the model and deals with the cases where v is smaller than the number of dimensions.
-        parameters
-        --------
-        v:scalar quantity. int or float.
-        Represents the degrees of freedom of the precision
-        d: int
-        Dimensions of the model
-        
-         Returns
-         --------
-         df: int or float
-         Adjusted degrees of freedom.'''
-          
+    def __chol_S(self,S=None):
+        if S is None:
+            S = self.GaussComp.S_0
+            
+        if self.d == 1:
+            return S.flatten()
+        else:
+            return Cholesky(S).log_determinant()
+
+    def __df(self, v=None, d=None):
+        '''sets the degreed of freedom in the model to be used in several functions'''
+        if v is None:
+            v= self.GaussComp.v_0
+        if d is None:
+            d= self.d
         if v<d:
             return d+1
         else:
             return v+1
             
-    def __prec_mu_norm_Z(self,S, kappa,v, d):
+    def __prec_mu_norm_Z(self,S=None, kappa=None,v = None, d=None):
+        
+        '''Log of the normalizing constant of the precision and mean. This normalizing function is 
+        used throughout different equations.eq(1), (2)'''
+        if S is None:
+            S = self.GaussComp.S_0
+        if kappa is None:
+            kappa = self.GaussComp.kappa_0
+        if v is None:
+            v = self.GaussComp.v_0
+        if d is None:
+            d = self.d
         
         df = self.__df(v,d)
         
@@ -64,23 +80,18 @@ class Gauss_Wishart_probability_model:
             kt = 0.5*d*math.log(kappa)
         
         self.prec_mu_norm_Z = (0.5*df*d*math.log(2))+ (0.25*(d*(d+1))*math.log(math.pi)) - kt \
-        -((0.5*(df-1))*Cholesky(S).log_determinant())+sum(gamlog(0.5*(df-np.arange(1,d+1))))
+        -((0.5*(df-1))*self.__chol_S(S))+sum(gamlog(0.5*(df-np.arange(1,d+1))))
         
         return self.prec_mu_norm_Z
-    
-    def __prec_norm_Z(self, S,v,d):
-        '''normalizing constant for the probability that the precision matrix is Lamda, given the prior.
-        This is modelled as Wi(v, S). The normalizing constant is 1/Z and 
-        Z = [2**(0.5*v*d)][det(S)**(-0.5*v)][prod(gamma_func(v+1-i)) for i in xrange(d)].'''
-        
-        df = self.__df(v,d)
-              
-        self.prec_norm_Z = (0.5*(df-1)*d*math.log(2))-((0.5*(df-1))*Cholesky(S).log_determinant()) + ((0.25*d*(d-1))*math.log(math.pi))\
-        +sum(gamlog(0.5*(df-np.arange(1, d+1))))
-         
-        return self.prec_norm_Z
 
-    def __mu_norm_Z(self, kappa,d):
+    def __mu_norm_Z(self, kappa=None,d=None):
+        '''Computes the normalizing constant of the distribution of the mean. eq(2), (3)'''
+        
+        if kappa is None:
+            kappa = self.GaussComp.kappa_0
+        
+        if d is None:
+            d = self.d
         
         if kappa==0:
             kt=0
@@ -90,14 +101,54 @@ class Gauss_Wishart_probability_model:
         self.mu_norm_Z = (-0.5*d*(math.log(2*math.pi)))+kt
         
         return self.mu_norm_Z
-        
-    def prior_lp_prec_(self, prec,S, v,d):
 
+    
+        
+                
+    def __prec_norm_Z(self, S=None,v=None,d=None):
+        
+        '''normalizing constant for the probability that the precision matrix is Lamda, given the prior.
+        This is modelled as Wi(v, S). The normalizing constant is 1/Z and 
+        Z = [2**(0.5*v*d)][det(S)**(-0.5*v)][prod(gamma_func(v+1-i)) for i in xrange(d)].'''
+        
+        if S is None:
+            S = self.GaussComp.S_0
+        if v is None:
+            v = self.GaussComp.v_0
+        if d is None:
+            d = self.d
+        
         df = self.__df(v,d)
+              
+        self.prec_norm_Z = (0.5*d*(df-1)*math.log(2))-((0.5*(df-1))*self.__chol_S(S)) + ((0.25*d*(d-1))*math.log(math.pi))\
+        +sum(gamlog(0.5*(df-np.arange(1, d+1))))
+         
+        return self.prec_norm_Z
 
-        self.prior_lp_prec = -self.__prec_norm_Z(S, df-1, d)+(0.5*(df-d-2)*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', prec, S))
         
-        return self.prior_lp_prec
+    def prior_lp_prec_(self, prec=None,S=None, v=None,d=None):
+        '''Computes the log prior probability of the precision matrix.eq (7), (8)'''
+        
+        if prec is None:
+            prec = self.GaussComp.prec
+        if S is None:
+            S = self.GaussComp.S_0
+        if v is None:
+            v = self.GaussComp.v_0
+        if d is None:
+            d = self.d
+        
+        df = self.__df(v,d)
+        
+        
+        if d == 1:
+            self.prior_lp_prec = (-self.__prec_norm_Z(S, df-1, d)+(0.5*(df-3)*math.log(prec))-(0.5*prec*S)).flatten()
+        
+            return self.prior_lp_prec
+        
+        else:
+            self.prior_lp_prec = -self.__prec_norm_Z(S, df-1, d)+(0.5*(df-d-2)*log_chol_prec)-(0.5*np.einsum('ij, ij', prec, S))
+            return self.prior_lp_prec
 
     def prior_lp_mu_(self, prec, emp_mu, mu_0, kappa,d):
         
