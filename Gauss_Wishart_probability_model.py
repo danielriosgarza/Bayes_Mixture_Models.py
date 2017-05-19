@@ -119,15 +119,17 @@ class Gauss_Wishart_model:
             d = self.d
         
         df = self.__df(v,d)
-              
-        self.prec_norm_Z = (0.5*d*(df-1)*math.log(2))-((0.5*(df-1))*self.__chol_S(S)) + ((0.25*d*(d-1))*math.log(math.pi))\
-        +sum(gamlog(0.5*(df-np.arange(1, d+1))))
-         
+        if d==1:
+            self.prec_norm_Z = (-0.5*(df-1)*(math.log(S.flatten())-math.log(2))) +gamlog(0.5*(df-1))
+        else:
+            self.prec_norm_Z = (0.5*d*(df-1)*math.log(2))-((0.5*(df-1))*self.__chol_S(S)) + ((0.25*d*(d-1))*math.log(math.pi))\
+            +sum(gamlog(0.5*(df-np.arange(1, d+1))))
+        
         return self.prec_norm_Z
 
         
     def prior_lp_prec_(self, prec=None,S=None, v=None,d=None):
-        '''Computes the log prior probability of the precision matrix.eq (7), (8)'''
+        '''Computes the log prior probability of the precision matrix.eq (9), (10), (11), (12)'''
         
         if prec is None:
             prec = self.GaussComp.prec
@@ -142,17 +144,28 @@ class Gauss_Wishart_model:
         
         
         if d == 1:
-            self.prior_lp_prec = (-self.__prec_norm_Z(S, df-1, d)+(0.5*(df-3)*math.log(prec))-(0.5*prec*S)).flatten()
-        
-            return self.prior_lp_prec
-        
+            self.prior_lp_prec = (-self.__prec_norm_Z(S, df-1, d)+(0.5*(df-3)*math.log(prec))-(0.5*prec*S.flatten()))
+               
         else:
             self.prior_lp_prec = -self.__prec_norm_Z(S, df-1, d)+(0.5*(df-d-2)*log_chol_prec)-(0.5*np.einsum('ij, ij', prec, S))
-            return self.prior_lp_prec
+        return self.prior_lp_prec
 
-    def prior_lp_mu_(self, prec, emp_mu, mu_0, kappa,d):
+    def prior_lp_mu_(self, prec=None, emp_mu=None, mu_0=None, kappa=None,d=None):
+        if prec is None:
+            prec = self.GaussComp.prec
+        if kappa is None:
+            kappa = self.GaussComp.kappa_0
+        if emp_mu is None:
+            emp_mu = self.GaussComp.emp_mu
+        if mu_0 is None:
+            mu_0 = self.GaussComp.mu_0
+        if d is None:
+            d = self.d
         
-        self.prior_lp_mu = self.__mu_norm_Z(kappa, d)+(0.5*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', kappa*prec, np.einsum('i,j->ij', (emp_mu)-mu_0, (emp_mu)-mu_0)))
+        if d==1:
+            self.prior_lp_mu = self.__mu_norm_Z(kappa,1)+(0.5*math.log(prec)) - (0.5*kappa*prec*((emp_mu-mu_0)**2))
+        else:
+            self.prior_lp_mu = self.__mu_norm_Z(kappa, d)+(0.5*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', kappa*prec, np.einsum('i,j->ij', (emp_mu)-mu_0, (emp_mu)-mu_0)))
         
         return self.prior_lp_mu
 
