@@ -40,7 +40,9 @@ class Gaussian_component:
             self.S_0 = self.GI.S
         else:
             self.S_0 = S_0 
-        
+        if d==1:
+            self.mu_0=float(self.mu_0.flatten())
+            self.S_0=float(self.S_0.flatten())
         if X is None:
             self.X = self.GI.Xi
             self.X.shape=(1,self.d)
@@ -48,6 +50,7 @@ class Gaussian_component:
         elif d==1:
             self.X = X
             X.shape = (len(X.flatten()),1)
+            
             
         else:
             self.X = X 
@@ -76,7 +79,10 @@ class Gaussian_component:
         elif self.n == 1:
             self.sX = self.X.flatten()
         else:
-            self.sX = np.einsum('ij->j', self.X) 
+            if self.d==1:
+                self.sX = float(np.einsum('ij->j', self.X))
+            else:
+                self.sX = np.einsum('ij->j', self.X) 
         return self.sX
     
     def __mu(self):
@@ -98,7 +104,8 @@ class Gaussian_component:
 
     def __XX_T(self):
         if self.d==1:
-            self.XX_T = np.einsum('ij, ji->ij', self.X,self.X)
+            #returns the sum of Xi*Xi
+            self.XX_T = float(np.einsum('ij, ij->j', self.X,self.X))
         else:
             self.XX_T = np.einsum('ij, iz->jz', self.X, self.X)
         return self.XX_T
@@ -106,7 +113,7 @@ class Gaussian_component:
     def __cov(self):
         if self.n is 0:
             if self.d==1:
-                self.cov = self.GI._Gaussian_variable__cov()
+                self.cov = float(self.GI._Gaussian_variable__cov())
                 return self.cov
             else:
                 self.cov=self.GI._Gaussian_variable__cov() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
@@ -114,7 +121,7 @@ class Gaussian_component:
         else:
             
             if self.d==1:
-                self.cov = (self.GI._Gaussian_variable__cov() + np.var(self.X)).flatten()
+                self.cov = float((self.GI._Gaussian_variable__cov() + np.var(self.X)).flatten())
                 return self.cov
             else:
                 self.cov= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
