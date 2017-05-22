@@ -61,6 +61,8 @@ class Gaussian_component:
         
         self.emp_mu = self.__emp_mu()
         
+        self.scale = None
+        
         self.XX_T=None
         
         self.cov = None
@@ -110,7 +112,7 @@ class Gaussian_component:
             self.XX_T = np.einsum('ij, iz->jz', self.X, self.X)
         return self.XX_T
         
-    def __cov(self):
+    def __scale(self):
         if self.n is 0:
             if self.d==1:
                 self.cov = float(self.GI._Gaussian_variable__cov())
@@ -121,11 +123,15 @@ class Gaussian_component:
         else:
             
             if self.d==1:
-                self.cov = float((self.GI._Gaussian_variable__cov() + np.var(self.X)).flatten())
-                return self.cov
+                self.scale = float(self.GI._Gaussian_variable__cov().flatten()+self.__XX_T() + self.kappa_0*(self.mu_0**2)-(self.kappa_0+self.n)*(self.mu**2))
+            
             else:
-                self.cov= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
-                return self.cov
+                self.scale= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
+        
+        return self.scale
+    def __cov(self):
+        self.cov = (1./self.n)*self.__scale()
+        return self.cov
             
     def __chol_cov(self):
         if self.d==1:
