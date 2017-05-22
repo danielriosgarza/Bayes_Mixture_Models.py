@@ -3,7 +3,6 @@ import numpy as np
 import math
 import scipy.linalg as linalg
 from Cholesky import Cholesky
-from Gaussian_variable import Gaussian_variable
 import random
 trm = linalg.get_blas_funcs('trmm')
 
@@ -41,8 +40,8 @@ class Gaussian_component:
         else:
             self.S_0 = S_0 
         if d==1:
-            self.mu_0=float(self.mu_0.flatten())
-            self.S_0=float(self.S_0.flatten())
+            self.mu_0=float(np.array(self.mu_0).flatten())
+            self.S_0=float(np.array(self.S_0).flatten())
         if X is None:
             self.X = self.GI.Xi
             self.X.shape=(1,self.d)
@@ -115,22 +114,37 @@ class Gaussian_component:
     def __scale(self):
         if self.n is 0:
             if self.d==1:
-                self.cov = float(self.GI._Gaussian_variable__cov())
-                return self.cov
+                self.scale = float(self.GI._Gaussian_variable__cov())
+                
             else:
-                self.cov=self.GI._Gaussian_variable__cov() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
-                return self.cov
+                self.scale=self.GI._Gaussian_variable__cov() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
+                
         else:
             
             if self.d==1:
-                self.scale = float(self.GI._Gaussian_variable__cov().flatten()+self.__XX_T() + self.kappa_0*(self.mu_0**2)-(self.kappa_0+self.n)*(self.mu**2))
+                self.scale = float(np.array(self.GI._Gaussian_variable__cov()).flatten()+self.__XX_T() + self.kappa_0*(self.mu_0**2)-(self.kappa_0+self.n)*(self.mu**2))
             
             else:
                 self.scale= self.GI._Gaussian_variable__cov()+self.__XX_T()+self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
         
         return self.scale
+    
     def __cov(self):
-        self.cov = (1./self.n)*self.__scale()
+        if self.n is 0:
+            if self.d==1:
+                self.cov = float(self.GI._Gaussian_variable__cov())
+                
+            else:
+                self.cov=self.GI._Gaussian_variable__cov() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
+                
+        else:
+            
+            if self.d==1:
+                self.cov = (1./self.n)*float(self.__XX_T() - 2*self.emp_mu*self.sX + self.n*(self.emp_mu**2))
+            
+            else:
+                self.cov= (1./self.n)*(self.__XX_T() - 2*np.einsum('i,j->ji', self.sX, self.emp_mu)+self.n*np.einsum('i,j->ji', self.emp_mu, self.emp_mu))
+        
         return self.cov
             
     def __chol_cov(self):
@@ -381,6 +395,7 @@ class Gaussian_component:
         self.__mu()
         self.__emp_mu()
         self.__XX_T()
+        self.__scale()
         self.__cov()
         self.__chol_cov()
         self.__prec()
