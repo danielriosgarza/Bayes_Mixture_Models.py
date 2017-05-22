@@ -6,7 +6,6 @@ from Cholesky import Cholesky
 import random
 trm = linalg.get_blas_funcs('trmm')
 from scipy.special import gammaln as gamlog
-from Gaussian_component import Gaussian_component
 
 
 
@@ -138,39 +137,41 @@ class Gauss_Wishart_model:
         
         
         if d == 1:
+            prec=abs(prec)
             self.prior_lp_prec = (-self.__prec_norm_Z(S, df-1, d)+(0.5*(df-3)*math.log(prec))-(0.5*prec*S))
                
         else:
             self.prior_lp_prec = -self.__prec_norm_Z(S, df-1, d)+(0.5*(df-2-d)*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', prec, S))
         return self.prior_lp_prec
 
-    def prior_lp_mu_(self, prec=None, emp_mu=None, mu_0=None, kappa=None,d=None):
+    def prior_lp_mu_(self, prec=None, mu=None, mu_0=None, kappa=None,d=None):
         '''Computes the log prior probability of the mean. Eqs (13), (14),(15), (16).'''
         if prec is None:
             prec = self.GaussComp.prec
         if kappa is None:
             kappa = self.GaussComp.kappa_0
-        if emp_mu is None:
-            emp_mu = self.GaussComp.emp_mu
+        if mu is None:
+            mu = self.GaussComp.emp_mu
         if mu_0 is None:
             mu_0 = self.GaussComp.mu_0
         if d is None:
             d = self.d
         
         if d==1:
-            self.prior_lp_mu = self.__mu_norm_Z(kappa,1)+(0.5*math.log(prec))- (0.5*(kappa*prec)*((emp_mu-mu_0)**2))
+            prec = abs(prec)
+            self.prior_lp_mu = self.__mu_norm_Z(kappa,1)+(0.5*math.log(prec))- (0.5*(kappa*prec)*((mu-mu_0)**2))
         else:
-            self.prior_lp_mu = self.__mu_norm_Z(kappa, d)+(0.5*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', kappa*prec, np.einsum('i,j->ij', (emp_mu)-mu_0, (emp_mu)-mu_0)))
+            self.prior_lp_mu = self.__mu_norm_Z(kappa, d)+(0.5*Cholesky(prec).log_determinant())-(0.5*np.einsum('ij, ij', kappa*prec, np.einsum('i,j->ij', (mu)-mu_0, (mu)-mu_0)))
         
         return self.prior_lp_mu
 
-    def prior_lp_(self, prec=None, emp_mu=None, mu_0=None, S=None, kappa=None,v=None, d=None):
+    def prior_lp_(self, prec=None, mu=None, mu_0=None, S=None, kappa=None,v=None, d=None):
         if prec is None:
             prec = self.GaussComp.prec
         if kappa is None:
             kappa = self.GaussComp.kappa_0
-        if emp_mu is None:
-            emp_mu = self.GaussComp.emp_mu
+        if mu is None:
+            mu = self.GaussComp.emp_mu
         if mu_0 is None:
             mu_0 = self.GaussComp.mu_0
         if v is None:
@@ -183,14 +184,15 @@ class Gauss_Wishart_model:
         df = self.__df(v,d)
         
         if d==1:
-            self.prior_lp = -self.__prec_mu_norm_Z(S, kappa, df-1, d)+0.5*(df-2)*math.log(prec) - 0.5*prec*(S+kappa*(emp_mu-mu_0)**2)
+            prec=abs(prec)
+            self.prior_lp = -self.__prec_mu_norm_Z(S, kappa, df-1, d)+0.5*(df-2)*math.log(prec) - 0.5*prec*(S+kappa*(mu-mu_0)**2)
         else:
             self.prior_lp = -self.__prec_mu_norm_Z(S, kappa, df-1,d)+((0.5*(df-1-d))*Cholesky(prec).log_determinant())\
-            -(0.5*np.einsum('ij, ij', prec, (kappa*np.einsum('i,j->ij', emp_mu-mu_0, emp_mu-mu_0))+S))
+            -(0.5*np.einsum('ij, ij', prec, (kappa*np.einsum('i,j->ij', mu-mu_0, mu-mu_0))+S))
         
         return self.prior_lp
     
-    def data_lp_(self, prec=None, XX_T=None, sX=None, emp_mu=None, n=None, d=None):
+    def data_lp_(self, prec=None, XX_T=None, sX=None, mu=None, n=None, d=None):
         
         if prec is None:
             prec = self.GaussComp.prec
@@ -198,8 +200,8 @@ class Gauss_Wishart_model:
             XX_T = self.GaussComp.XX_T
         if sX is None:
             sX = self.GaussComp.sX
-        if emp_mu is None:
-            emp_mu = self.GaussComp.emp_mu
+        if mu is None:
+            mu = self.GaussComp.emp_mu
         if n is None:
             n = self.n
         if d is None:
@@ -208,12 +210,13 @@ class Gauss_Wishart_model:
         if n==0:
             n=1
         if d ==1:
-            self.data_lp = (-0.5*(n*d)*math.log(2*math.pi)) + ((0.5*n)*math.log(prec)) - (0.5*prec*((XX_T) -( 2*emp_mu*sX)+(n*emp_mu*emp_mu)))
+            prec = abs(prec)
+            self.data_lp = (-0.5*(n*d)*math.log(2*math.pi)) + ((0.5*n)*math.log(prec)) - (0.5*prec*((XX_T) -( 2*mu*sX)+(n*mu*mu)))
         else:
-            self.data_lp= (-0.5*(n*d)*math.log(2*math.pi)) + ((0.5*n)* Cholesky(prec).log_determinant()) - (0.5*np.einsum('ij, ij', prec, (n*np.einsum('i,j->ij', emp_mu, emp_mu)-2*np.einsum('i,j->ij', sX, emp_mu) + XX_T)))
+            self.data_lp= (-0.5*(n*d)*math.log(2*math.pi)) + ((0.5*n)* Cholesky(prec).log_determinant()) - (0.5*np.einsum('ij, ij', prec, (n*np.einsum('i,j->ij', mu, mu)-2*np.einsum('i,j->ij', sX, mu) + XX_T)))
         return self.data_lp
     
-    def joint_lp_(self, prec = None, XX_T = None, S = None, mu_0 = None, sX=None, emp_mu=None, kappa=None, v=None, n=None,d=None):
+    def joint_lp_(self, prec = None, XX_T = None, S = None, mu_0 = None, sX=None, mu=None, kappa=None, v=None, n=None,d=None):
         if prec is None:
             prec = self.GaussComp.prec
         if XX_T is None:
@@ -224,8 +227,8 @@ class Gauss_Wishart_model:
             mu_0 = self.GaussComp.mu_0
         if sX is None:
             sX = self.GaussComp.sX
-        if emp_mu is None:
-            emp_mu = self.GaussComp.emp_mu
+        if mu is None:
+            mu = self.GaussComp.emp_mu
         if kappa is None:
             kappa = self.GaussComp.kappa_0
         if v is None:
@@ -240,11 +243,12 @@ class Gauss_Wishart_model:
             n=1
 
         if d==1:
+            prec=abs(prec)
             self.joint_lp = (-0.5*n*math.log(2*math.pi)) - self.__prec_mu_norm_Z(S, kappa, df-1, d) + (0.5*(df-2+n)*math.log(prec))- \
-            (0.5*prec*((kappa*(emp_mu-mu_0)**2)+S+XX_T-(2*emp_mu*sX)+(n*emp_mu*emp_mu)))
+            (0.5*prec*((kappa*(mu-mu_0)**2)+S+XX_T-(2*mu*sX)+(n*mu*mu)))
         else:
             self.joint_lp =  (-0.5*(n*d)*math.log(2*math.pi)) -self.__prec_mu_norm_Z(S, kappa, df-1,d) + ((0.5*(df-1+n-d))*Cholesky(prec).log_determinant())\
-            -(0.5*np.einsum('ij, ij', prec, ((kappa+n)*np.einsum('i,j->ij', emp_mu, emp_mu) - 2*np.einsum('i,j->ij', emp_mu, ((kappa*mu_0)+sX)) +  kappa*np.einsum('i,j->ij', mu_0, mu_0)+XX_T+S)))
+            -(0.5*np.einsum('ij, ij', prec, ((kappa+n)*np.einsum('i,j->ij', mu, mu) - 2*np.einsum('i,j->ij', mu, ((kappa*mu_0)+sX)) +  kappa*np.einsum('i,j->ij', mu_0, mu_0)+XX_T+S)))
         return self.joint_lp 
     
     def marginal_lp_(self, scale=None, S=None, kappa=None, v=None, n=None,d=None):
@@ -291,15 +295,15 @@ class Gauss_Wishart_model:
         
         
         
-    def post_lp_(self, prec=None, scale=None, mu=None,emp_mu=None, sX=None, kappa=None, v=None, n=None, d=None):
+    def post_lp_(self, prec=None, scale=None, mu=None,post_mu=None, sX=None, kappa=None, v=None, n=None, d=None):
         if prec is None:
             prec = self.GaussComp.prec
         if scale is None:
             scale = self.GaussComp.scale
+        if post_mu is None:
+            post_mu = self.GaussComp.mu
         if mu is None:
-            mu = self.GaussComp.mu
-        if emp_mu is None:
-            emp_mu = self.GaussComp.emp_mu
+            mu = self.GaussComp.emp_mu
         if sX is None:
             sX = self.GaussComp.sX
         if kappa is None:
@@ -315,8 +319,13 @@ class Gauss_Wishart_model:
         if n ==0:
             n=1
         
-        self.post_lp = -self.__prec_mu_norm_Z(scale, kappa+n, df-1+n,d) + (0.5*(df-1+n-d))*Cholesky(prec).log_determinant()\
-        -(0.5*np.einsum('ij, ij', prec, ((kappa+n)*np.einsum('i,j->ij', mu-emp_mu, mu-emp_mu) + scale)))
+        if d ==1:
+            self.post_lp = -self.__prec_mu_norm_Z(scale, kappa+n, df-1+n,d) + (0.5*(df-2+n)*math.log(prec)) - (0.5*prec*((kappa+n)*((mu-post_mu)**2)+scale))
+        
+        else:
+            self.post_lp = -self.__prec_mu_norm_Z(scale, kappa+n, df-1+n,d) + (0.5*(df-1+n-d))*Cholesky(prec).log_determinant()\
+            -(0.5*np.einsum('ij, ij', prec, ((kappa+n)*np.einsum('i,j->ij', mu-post_mu, mu-post_mu) + scale)))
+        
         return self.post_lp
           
     def post_pred_lp_(self, Xi, prec, mu, kappa,v, n,d):
