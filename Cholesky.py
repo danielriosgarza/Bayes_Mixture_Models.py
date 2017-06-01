@@ -204,7 +204,8 @@ class Cholesky:
     
     def determinant(self):
         '''returns the determinant of the A computed from its Cholesky decomposition'''
-        return math.exp(self.log_determinant())
+        self.det=math.exp(self.log_determinant())
+        return self.det
         
 
 
