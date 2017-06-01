@@ -17,63 +17,89 @@ except ImportError:
 
 class Cholesky:
     '''Methods for the Cholesky decomposition of positive matrices.
-    Must be instantiated with a square matrix.
-    Operations on Cholesky decompositions can be called with a user supplied 
-    Cholesky decomposition or with a positive definite (or semi-definite)
-    matrix A.
-    If A is positive definite or semi-definite matrix or approximately positive definite, 
-    then:
-    > Cholesky(A).upper() #returns the upper triangular Chol. dec. of A.
-    > Cholesky(A).lower() #returns the lower triangular Chol. dec. of A.
+    Must be instantiated with a square matrix, called A.
+    This matrix can be a full positive definite matrix or a Cholesky upper/lower decomposition.
+    'method' defines the kind of input matrix. Provide one the terms: 'full' (default), 'upper', 'lower', 
+    or 'approximate'. Potential linear algebra errors imply an approximate matrix, the Cholesky object tries
+    to figure this out and if verbose is on, it prints a warning.
     
-    If cA is the Cholesky decomposition of A, then, for example:
-    > Cholesky(cA).chol_of_the_inv(cA) #returns the Chol. dec. of the inverse of A
-    From A:
-    > Cholesky(A).chol_of_the_inv() #returns the Chol. dec. of the inverse of A
         '''
     
-    def __init__(self, A, verbose=True):
-        self.matrix = A
+    def __init__(self, A, method='full', verbose=True):
+        self.method = self.__method(method)
         self.d = len(A)
         self.verbose=verbose
-
-    def mat(self, chol_A=None, config='lower'):
-        '''return the orginal matrix when given an upper or lower Cholesky decomposition.'''
-
-        if chol_A is None:
-            return self.matrix
-        elif config=='lower':
-            return trm(alpha=1, a=chol_A, b=chol_A.T,lower=1)
-        else:
-            return trm(alpha=1, a=chol_A.T, b=chol_A,lower=1)
-
-    def upper(self):
-        '''return the upper triangular Cholesky decompostion of A.
-        If A is a postive definite matrix, and U is its upper triangular Cholesky decomposition.
-        Then A = U'U. The function can handle positive semi-definite matrices or matrices approximately
-        positive definite, providing an approximation.'''
-        try:
-            return linalg.cholesky(self.matrix, lower=0, check_finite=0, overwrite_a=0)
-        except linalg.LinAlgError:
-            return self.lower_semidefinite().T
+        self.lower = None
+        self.upper = None
+        self.matrix = self.__mat(A)
+        self.inv=None
+        self.lower_inv = None
         
-    def lower(self):
-        '''return the lower triangular Cholesky decompostion of A.
-        If A is a postive definite matrix, and L is its lower triangular Cholesky decomposition.
-        Then A = LL'. The function can handle positive semi-definite matrices or matrices approximately
-        positive definite, providing an approximation.'''
         
-        try:
-            return linalg.cholesky(self.matrix, lower=1, check_finite=0, overwrite_a=0)
-        except linalg.LinAlgError:
-            return self.lower_semidefinite()
+    
+    def __method(self, method='full'):
+        assert method=='full' or method=='lower' or method=='upper' or method=='approximate',\
+        "\n\n\nError: supported methods are 'full', 'lower', 'upper', and  'approximate'"
+        self.method=method
+        return self.method
+    
+    def __mat(self, A, method='full'):
+        assert A.shape==(self.d, self.d), "\n\n\nError: A must be a square matrix\n\n\n"
+        if method=='full':
+            if np.allclose(A, A.T):
+                try:
+                    self.lower = linalg.cholesky(A, lower=1, check_finite=0, overwrite_a=0)
+                    self.upper = self.lower.T
+                    self.matrix = A
+                except np.linalg.LinAlgError:
+                    self.matrix = A
+                    self.method = 'approximate'
+                    self.lower = self.lower_semidefinite()
+                    self.upper = self.lower.T
+            else:
+                self.matrix=A
+                self.method = 'approximate'
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
 
+        elif method =='lower':
+            assert np.all(A[np.triu_indices(self.d, 1)]==0), \
+            "\n\n\nError: if method is 'lower', a lower triangular matrix is required\n\n\n"
+            if np.all(np.diag(A)>0):
+                self.matrix=trm(alpha=1, a=A, b=A.T,lower=1)
+                self.lower = A
+                self.upper = self.lower.T
+            else:
+                self.matrix=trm(alpha=1, a=A, b=A.T,lower=1)
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
+                self.method='approximate'
+                
+        elif method =='upper':
+            assert np.all(A[np.tril_indices(self.d, 1)]==0), \
+            "\n\n\nError: if method is 'upper', an upper triangular matrix is required\n\n\n"
+            if np.all(np.diag(A)>0):
+                self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
+                self.upper = A
+                self.lower = self.lower.T
+            else:
+                self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
+                self.method='approximate'
+                    
+        return self.matrix
+                    
+        
+            
+            
+    
     def lower_semidefinite(self):
         '''returns the approximation of the cholesky decomposition for positive semi-definite matrices
         and aproximately positive definite matrices. Notice that this is an approximation to a matrix that is singular, 
         so the inverse will not result in the identity A*inv(A)=I'''
         if self.verbose:
-            print '\x1b[5;31;46m'+'Warning: A is not positive definite. Applied positive semidefinite method that can result in a wrong result.'+ '\x1b[0m'
+            print '\x1b[5;31;46m'+'Warning: A is not positive definite. Applied approximate method that could be wrong.'+ '\x1b[0m'
         a,b = linalg.eigh(0.5*(self.matrix+self.matrix.T))
         a[a<0]=0
         a = np.diag(a)
@@ -82,34 +108,47 @@ class Cholesky:
 
 
     
-    def __chol_A(self, chol_A=None):
-        '''Check if a Cholesky decompostion is provided. Otherwise take the decomposition of A'''
-        if chol_A is None:
-            try:
-                return self.lower()
-            except linalg.LinAlgError:
-                return self.lower_semidefinite()
-        else:
-            return chol_A
-
-    def  chol_of_the_inv(self, chol_A=None):
+    def  chol_of_the_inv(self):
         '''return the Cholesky decompostion of the inverse of A'''
-        chol_A = self.__chol_A(chol_A)
-        v1 = linalg.solve_triangular(chol_A, np.eye(self.d), lower=1,trans=0, overwrite_b=1,check_finite=0)
-        v2 = linalg.solve_triangular(chol_A.T, v1, lower=0,trans=0, overwrite_b=1,check_finite=0)
-        return linalg.cholesky(v2, lower=1, check_finite=0, overwrite_a=1)
+        v1 = linalg.solve_triangular(self.lower, np.eye(self.d), lower=1,trans=0, overwrite_b=0,check_finite=0) 
+        
+        if self.method=='approximate':
+            try:
+                self.inv = np.linalg.inv(self.matrix)
+            except np.linalg.LinAlgError:
+                self.inv = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=0,check_finite=0)
+                if self.verbose:
+                     print '\x1b[5;31;46m'+'Warning: used approximation for the inverse'+ '\x1b[0m'
+            
+            try:
+                self.lower_inv = linalg.cholesky(self.inv, lower=1, check_finite=0, overwrite_a=0)
+            except np.linalg.LinAlgError:
+                v2 = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=1,check_finite=0)
+                self.lower_inv = linalg.cholesky(v2, lower=1, check_finite=0, overwrite_a=0)
+                if self.verbose:
+                     print '\x1b[5;31;46m'+'Warning: used approximation for the Cholesky of the inverse'+ '\x1b[0m'
+    
+        else:
+            self.inv = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=1,check_finite=0)
+            self.lower_inv = linalg.cholesky(self.inv, lower=1, check_finite=0, overwrite_a=0)
+        
+        return self.lower_inv
+        
 
-    def inv(self, chol_A=None):
+    def __inv(self):
         '''return the inverse of A'''
-        chol_A = self.__chol_A(chol_A)
-        self.choliA = self.chol_of_the_inv(chol_A)
-        return trm(alpha=1, a=self.choliA, b=self.choliA.T,lower=1)
+        if self.lower_inv is None:
+            self.lower_inv = self.chol_of_the_inv()
+        
+        return self.inv
+        
 
-    def r_1_update(self, X, chol_A=None, pychud_im = pychud_im):
-        '''Perform a rank 1 update to the lower Cholesky decomposition of A. 
+    def r_1_update(self, X, pychud_im = pychud_im):
+        '''Returns a rank 1 update to the lower Cholesky decomposition of A. 
         Returns the cholesky decomposition of A*, where A*=A+XX' and X is a d-dimensional vector.'''
 
-        chol_A = self.__chol_A(chol_A)
+        chol_A = self.lower
+
         if pychud_im:
             return pychud.dchud(chol_A.T, X, overwrite_r=False).T
         else:
@@ -123,11 +162,13 @@ class Cholesky:
                     X[i] = (X[i]*c)-(s*chol_A[i,k])
         return chol_A
         
-    def r_1_downdate(self, X, chol_A=None, pychud_im = pychud_im):
+    def r_1_downdate(self, X, pychud_im = pychud_im):
         '''Perform a rank 1 downdate to the lower Cholesky decomposition of A. 
         Returns the cholesky decomposition of A*, where A*=A-XX' and X is a d-dimensional vector.
         The pychud method is faster and more stable'''
-        chol_A = self.__chol_A(chol_A)
+        chol_A = self.lower
+        if self.verbose:
+            print '\x1b[5;31;46m'+'Warning: downdate assumed to be positive definite. But not guaranteed'+ '\x1b[0m'
         if pychud_im:
             return pychud.dchdd(chol_A.T, X, overwrite_r=False)[0].T
         else:
@@ -144,17 +185,26 @@ class Cholesky:
                 for i in xrange(k+1, self.d):
                     chol_A[i, k] = (chol_A[i,k]- (s*X[i]))/c
                     X[i] = (X[i]*c)-(s*chol_A[i,k])
+        
+        
         return chol_A
     
-    def log_determinant(self, chol_A=None):
+    def log_determinant(self):
         '''returns the log of the determinant of the A computed from its Cholesky decomposition'''
-        chol_A = self.__chol_A(chol_A)
-        return sum(2*np.log(np.diag(chol_A)))
+        if self.method=='approximate':
+            try:
+                self.log_det = np.linalg.slogdet(self.matrix)[1]
+            except np.linalg.LinAlgError:
+                self.log_det = sum(2*np.log(np.diag(self.lower)))
+                print '\x1b[5;31;46m'+'Warning: used approximation for the determinant'+ '\x1b[0m'
+        else:
+            self.log_det = sum(2*np.log(np.diag(self.lower)))
+        
+        return self.log_det
     
-    def determinant(self, chol_A=None):
+    def determinant(self):
         '''returns the determinant of the A computed from its Cholesky decomposition'''
-        chol_A = self.__chol_A(chol_A)
-        return math.exp(self.log_determinant(chol_A))
+        return math.exp(self.log_determinant())
         
 
 
