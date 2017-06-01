@@ -31,7 +31,7 @@ class Cholesky:
         self.verbose=verbose
         self.lower = None
         self.upper = None
-        self.matrix = self.__mat(A)
+        self.matrix = self.__mat(A, method)
         self.inv=None
         self.lower_inv = None
         
@@ -76,12 +76,12 @@ class Cholesky:
                 self.method='approximate'
                 
         elif method =='upper':
-            assert np.all(A[np.tril_indices(self.d, 1)]==0), \
+            assert np.all(A[np.tril_indices(self.d, -1)]==0), \
             "\n\n\nError: if method is 'upper', an upper triangular matrix is required\n\n\n"
             if np.all(np.diag(A)>0):
                 self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
                 self.upper = A
-                self.lower = self.lower.T
+                self.lower = self.upper.T
             else:
                 self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
                 self.lower = self.lower_semidefinite()
