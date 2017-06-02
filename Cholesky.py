@@ -2,485 +2,215 @@ from __future__ import division
 import numpy as np
 import math
 import scipy.linalg as linalg
-from Cholesky import Cholesky
-from Gaussian_variable import Gaussian_variable
-import random
-trm = linalg.get_blas_funcs('trmm')
+trm = linalg.get_blas_funcs('trmm') #multiply triangular matrices. If lower use lower=1.
+
+try:
+    import pychud
+    pychud_im =True
+except ImportError:
+    pychud_im = False
+#https://github.com/danielriosgarza/pychud
+#sudo apt-get install gfortran
+#python setup.py install
 
 
 
-class Gaussian_component(Gaussian_variable):
+class Cholesky:
+    '''Methods for the Cholesky decomposition of positive matrices.
+    Must be instantiated with a square matrix, called A.
+    This matrix can be a full positive definite matrix or a Cholesky upper/lower decomposition or some approximation.
+    'method' defines the kind of input matrix. Provide one of the terms: 'full' (default), 'upper', 'lower', 
+    or 'approximate'. Potential linear algebra errors imply an approximate matrix, the Cholesky object tries
+    to figure this out and if verbose is on, it prints a warning.
     
-    '''Deals with multiple measurements of a Gaussian variable random variable.'''
+        '''
     
-    def __init__(self, d, kappa_0 = 0, v_0=0, mu_0=None, S_0=None, X=None):
+    def __init__(self, A, method='full', verbose=True):
+        self.method = self.__method(method)
+        self.d = len(A)
+        self.verbose=verbose
+        self.lower = None
+        self.upper = None
+        self.matrix = self.__mat(A, method)
+        self.inv=None
+        self.lower_inv = None
         
         
-        
-        
-        self.d = self._Gaussian_variable__d(d)
-
-        self.n = self.__n(X)
-        
-        self.kappa_0 = kappa_0
-        
-        self.v_0 = v_0
-        
-        self.mu_0 = self._Gaussian_variable__mu(mu_0)
-        
-        
-        self.S_0 = self._Gaussian_variable__S(S_0)
-        
-        
-        self.X = self.__X(X)
-        
-        self.sX = None
-        
-        self.mu= self.__mu()
-        
-        self.emp_mu = self.__emp_mu()
-        
-        self.scale = None
-
-        self.inv_scale = None
-        
-        self.chol_inv_scale = None
-        
-        self.XX_T=None
-        
-        self.cov = None
-        
-        self.chol_cov=None
-        
-        self.prec= None
-        
-        self.chol_prec=None
-
-    def __n(self, X=None):
-        if X is None:
-            self.n =0
-        elif self.d==1:
-            self.n = len(X.flatten())
-        else:
-            self.n=len(X)
-        return self.n
     
-    def __X(self, X=None):
-        if X is None:
-            self.X = self._Gaussian_variable__Xi()
-            if self.d>1:
-                self.X.shape=(1,self.d)
-        
-        elif self.d==1:
-            if X.shape!=(self.d,0):
-                print '\x1b[5;31;46m'+'Warning: data was flattened'+ '\x1b[0m'
-            self.X = X
-            self.X.shape = (len(X.flatten()),1)
-            
-            
-        else:
-            self.X = X
-            self.X.shape = (self.n, self.d)
-        
-        return self.X
+    def __method(self, method='full'):
+        assert method=='full' or method=='lower' or method=='upper' or method=='approximate',\
+        "\n\n\nError: supported methods are 'full', 'lower', 'upper', and  'approximate'"
+        self.method=method
+        return self.method
     
-    def __sX(self, X=None):
-        if self.n == 0:
-            if self.d==1:
-                self.sX=0
+    def __mat(self, A, method='full'):
+        assert A.shape==(self.d, self.d), "\n\n\nError: A must be a square matrix\n\n\n"
+        if method=='full':
+            if np.allclose(A, A.T):
+                try:
+                    self.lower = linalg.cholesky(A, lower=1, check_finite=0, overwrite_a=0)
+                    self.upper = self.lower.T
+                    self.matrix = A
+                except np.linalg.LinAlgError:
+                    self.matrix = A
+                    self.method = 'approximate'
+                    self.lower = self.lower_semidefinite()
+                    self.upper = self.lower.T
             else:
-                self.sX = np.zeros(self.d)
-        elif self.n == 1:
-            if self.d==1:
-                self.sX = float(self.X)
-            else:
-                self.sX = self.X.flatten()
-        else:
-            if self.d==1:
-                self.sX = float(np.einsum('ij->j', self.X))
-            else:
-                self.sX = np.einsum('ij->j', self.X) 
-        return self.sX
-    
-    def __mu(self):
-        if self.n == 0:
-            self.mu = self.mu_0 
-            
-        else:
-            self.mu = (self.kappa_0*self.mu_0 + self.__sX(self.X))/(self.kappa_0+self.n)
-        
-        return self.mu
-    
-    def __emp_mu(self):
-        if self.n is 0:
-            self.emp_mu = self.mu_0 
-            return self.emp_mu
-        else:
-            self.emp_mu = (self.__sX(self.X))/(self.n)
-            return self.emp_mu
+                self.matrix=A
+                self.method = 'approximate'
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
 
-
-    def __XX_T(self):
-        if self.d==1:
-            #returns the sum of Xi*Xi
-            self.XX_T = float(np.einsum('ij, ij->j', self.X,self.X))
-        else:
-            self.XX_T = np.einsum('ij, iz->jz', self.X, self.X)
-        return self.XX_T
-        
-    def __scale(self):
-        if self.n == 0:
-            self.scale = self.S_0
+        elif method =='lower':
+            assert np.all(A[np.triu_indices(self.d, 1)]==0), \
+            "\n\n\nError: if method is 'lower', a lower triangular matrix is required\n\n\n"
+            if np.all(np.diag(A)>0):
+                self.matrix=trm(alpha=1, a=A, b=A.T,lower=1)
+                self.lower = A
+                self.upper = self.lower.T
+            else:
+                self.matrix=trm(alpha=1, a=A, b=A.T,lower=1)
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
+                self.method='approximate'
                 
-        else:
-            
-            if self.d==1:
-                self.scale = self.S_0 + self.__XX_T() + self.kappa_0*(self.mu_0**2)-(self.kappa_0+self.n)*(self.mu**2)
-            
+        elif method =='upper':
+            assert np.all(A[np.tril_indices(self.d, -1)]==0), \
+            "\n\n\nError: if method is 'upper', an upper triangular matrix is required\n\n\n"
+            if np.all(np.diag(A)>0):
+                self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
+                self.upper = A
+                self.lower = self.upper.T
             else:
-                self.scale= self.S_0 + self.__XX_T() + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)-(self.kappa_0+self.n)*np.einsum('i,j->ji', self.mu, self.mu)
-        
-        return self.scale
-    
-    def __inv_scale(self):
-        if self.scale is None:
-            self.scale = self.__scale()
-        if self.d==1:
-            self.inv_scale=1./self.scale
-        else:
-            self.inv_scale = Cholesky(self.scale)._Cholesky__inv()
-        
-        return self.inv_scale
-    
-    def __chol_inv_scale(self):
-        if self.inv_scale is None:
-            self.inv_scale = self.__inv_scale()
-        if self.d==1:
-            self.chol_inv_scale=self.inv_scale
-        else:
-            self.chol_inv_scale = Cholesky(self.inv_scale).lower
-        
-        return self.chol_inv_scale
-    
-    def __cov(self):
-        '''Empirical covariance matrix'''
-
-        if self.n == 0:
-            if self.d==1:
-                self.cov = 1.
-                
-            else:
-                self.cov= 1. + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
-                
-        else:
-            
-            if self.d==1:
-                self.cov = (1./self.n)*float(self.__XX_T() - 2*self.emp_mu*self.sX + self.n*(self.emp_mu**2))
-            
-            else:
-                self.cov= (1./self.n)*(self.__XX_T() - 2*np.einsum('i,j->ji', self.sX, self.emp_mu)+self.n*np.einsum('i,j->ji', self.emp_mu, self.emp_mu))
-        
-        return self.cov
-            
-    def __chol_cov(self):
-        cov = self.__cov()
-        self.chol_cov = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_cov()
-        return self.chol_cov
-        
-    def __prec(self):
-        cov = self.__cov()
-        self.prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__prec()
-        return self.prec
-    
-    def __chol_prec(self):
-        cov = self.__cov()
-        self.chol_prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_prec()
-        return self.chol_prec
-
-    def chol_prec_rvs(self):
-        if self.v_0+self.n<self.d+1:
-            df = self.d+1
-        else:
-            df = self.v_0+self.n
-        
-        if self.d==1:
-            
-            if self.scale is None:
-                s = self.__scale()
-            else:
-                s=self.scale
-            
-            return random.gammavariate(0.5*df, 2./s)
-        
-        else:
+                self.matrix=trm(alpha=1, a=A.T, b=A,lower=1)
+                self.lower = self.lower_semidefinite()
+                self.upper = self.lower.T
+                self.method='approximate'
                     
-            if self.chol_inv_scale is None:
-                a = self.__chol_inv_scale()
-            else:
-                a= self.chol_inv_scale
-            
-            ind = np.tril_indices(self.d,-1) #lower triangular non-diagonal elements
-            
-            B = np.zeros((self.d,self.d)) 
-            
-            norm = np.random.standard_normal(len(ind[0])) #normal samples for the lower triangular non-diagonal elements
-    
-            B[ind] = norm 
-    
-            chisq = [math.sqrt(random.gammavariate(0.5*(df-(i+1)+1), 2.0)) for i in xrange(self.d)]
-    
-            B = B+np.diag(chisq)
-    
-            ch_d =trm(alpha=1, a=a, b=B, lower=1)
-    
-            dg= np.diag(ch_d)#Assuring the result is the Cholesky decomposition that contains positive diagonals
-    
-            adj = np.tile(dg/abs(dg), (self.d,1))
-    
-            return ch_d*adj
-
-    def prec_rvs(self):
-        if self.d==1:
-            return 1./self.chol_prec_rvs()
-        else:
-            return Cholesky(self.chol_prec_rvs(), method='lower').matrix
-
-    def cov_rvs(self):
-        
-        if self.d==1:
-            return 1./self.chol_prec_rvs()
-        else:
-            return Cholesky(self.chol_prec_rvs(), method='lower')._Cholesky__inv()
-    
-    def chol_cov_rvs(self):
-        
-        if self.d==1:
-            return 1./self.chol_prec_rvs()
-        else:
-            return Cholesky(self.chol_prec_rvs(), method='lower')._Cholesky__chol_of_the_inv()
-
-    def mu_rvs(self, chol_prec=None):
-        
-        if chol_prec is None:
-            chol_prec = self.chol_prec_rvs()
-        
-        if self.n==0:
-            return Gaussian_variable(d= self.d, mu=self.mu, S = chol_prec, method='chol_prec').rvs().flatten()
-        else:
-            return Gaussian_variable(d= self.d, mu=self.mu, S = math.sqrt(self.kappa_0+self.n)*chol_prec, method='chol_prec').rvs().flatten()
-
-    
-    def rvs(self, n=1):
-        chol_prec = self.chol_prec_rvs()
-        mu = self.mu_rvs(chol_prec)
-        return Gaussian_variable(self.d, mu=mu, S = chol_prec, method='chol_prec').rvs().flatten()
-        
-    def s_down_date(self, ind_X, cov=False, chol_cov=False, prec=False, chol_prec=False):
-        
-        if self.n is 0:
-            print 'Failled to downdate: component is empty'
-            return None
-        try:
-            dwnX = self.X[ind_X]
-        except IndexError:
-            print 'Failled to downdate: ind_X not in X'
-            return None
-        
-        if self.n-1==0:
-            print 'Component is now empty. Setting parameters to priors'
-            self.n=0
-            self.mu = self.GI.mu
-            if self.cov is None:
-                pass
-            else:
-                self.cov= self.GI._Gaussian_variable__cov()
-            if self.chol_cov is None:
-                pass
-            else:
-                self.chol_cov = self.GI._Gaussian_variable__chol_cov()
-            if self.prec is None:
-                pass
-            else:
-                self.prec= self.GI._Gaussian_variable__prec()
-            if self.chol_prec is None:
-                pass
-            else:
-                self.chol_prec = self.GI._Gaussian_variable__chol_prec()
-            
-            return None
-            
-        n_c = self.n        
-        self.n-=1
-        mu_c = self.mu.copy()
-
-        self.mu = (((self.kappa_0+n_c)*mu_c)-dwnX)/(self.kappa_0+self.n)
-
-
-        if self.sX is None:
-            pass
-        else:
-            self.sX-=dwnX
-        
-                
-        if self.X is None:
-            pass
-        else:
-            ind =np.ones(len(self.X), dtype=np.bool)
-            ind[ind_X]=0
-            self.X = self.X[ind]
-        
-        if self.XX_T is None:
-            pass
-        else:
-            self.XX_T -= np.einsum('i,j->ij', dwnX, dwnX)
-        
-        if self.cov is None:
-            pass
-        elif cov:
-            a= self.__cov()
-        else:
-            pass
-        
-        if self.chol_cov is None:
-            pass
-        elif chol_cov:
-            up1 = math.sqrt(self.kappa_0+n_c)*mu_c
-            down1 = math.sqrt(self.kappa_0+self.n)*self.mu
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(dwnX, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(up1, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(down1, chol_A=self.chol_cov)
-        else:
-            pass
+        return self.matrix
                     
-        if self.prec is None:
-            pass
-        elif prec:
-            a= self.__prec()
-        else:
-            pass
         
-        if self.chol_prec is None:
-            pass
-        elif chol_prec:
-            a= self.__chol_prec()
-        else:
-            pass
+            
             
     
-    
-    def s_up_date(self, Xi, cov=False, chol_cov=False, prec=False, chol_prec=False):
-        
-               
+    def lower_semidefinite(self):
+        '''returns the approximation of the cholesky decomposition for positive semi-definite matrices
+        and aproximately positive definite matrices. Notice that this is an approximation to a matrix that is singular, 
+        so the inverse will not result in the identity A*inv(A)=I'''
+        if self.verbose:
+            print '\x1b[5;31;46m'+'Warning: A is not positive definite. Applied approximate method that could be wrong.'+ '\x1b[0m'
+        a,b = linalg.eigh(0.5*(self.matrix+self.matrix.T))
+        a[a<0]=0
+        a = np.diag(a)
+        B = b.dot(a).dot(b.T)
+        return linalg.cholesky(B+np.eye(self.d)*0.00000000001, lower=1, check_finite=0,overwrite_a=0)
 
-        if self.n==0:
-            self.n=1
-            self.X = Xi
-            self.mu = self.__mu()
-            if self.XX_T is None:
-                pass
-            else:
-                self.XX_T= self.__XX_T()
-            
-            if self.cov is None:
-                pass
-            else:
-                self.cov= self.__cov()
-            
-            if self.chol_cov is None:
-                pass
-            else:
-                self.cov= self.__chol_cov()
-            
-            if self.prec is None:
-                pass
-            else:
-                self.prec= self.__prec()
-                                    
-            
-            if self.chol_prec is None:
-                pass
-            else:
-                self.chol_prec = self.__chol_prec()
-            
-            return None
-        
-          
-        n_c = self.n        
-        self.n+=1
-        mu_c = self.mu.copy()
-        
-        
-
-        self.mu = (((self.kappa_0+n_c)*mu_c)+Xi.flatten())/(self.kappa_0+self.n)
-
-        if self.sX is None:
-            pass
-        else:
-            self.sX+=Xi.flatten()
-        
-                
-        if self.X is None:
-            pass
-        else:
-            self.X = np.concatenate([self.X, Xi])
-        
-        if self.XX_T is None:
-            pass
-        else:
-            self.XX_T += np.einsum('i,j->ij', Xi.flatten(), Xi.flatten())
-        
-        if self.cov is None:
-            pass
-        elif cov:
-            a= self.__cov()
-        else:
-            pass
-        
-        if self.chol_cov is None:
-            pass
-        elif chol_cov:
-            up1 = math.sqrt(self.kappa_0+n_c)*mu_c
-            down1 = math.sqrt(self.kappa_0+self.n)*self.mu
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(Xi, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(up1, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(down1, chol_A=self.chol_cov)
-        else:
-            pass
-            
-        if self.prec is None:
-            pass
-        elif prec:
-            a= self.__prec()
-        else:
-            pass
-        
-        if self.chol_prec is None:
-            pass
-        elif chol_prec:
-            a= self.__chol_prec()
-        else:
-            pass
-        
-        
-        
-    
 
     
+    def  __chol_of_the_inv(self):
+        '''return the Cholesky decompostion of the inverse of A'''
+        v1 = linalg.solve_triangular(self.lower, np.eye(self.d), lower=1,trans=0, overwrite_b=0,check_finite=0) 
+        
+        if self.method=='approximate':
+            try:
+                self.inv = np.linalg.inv(self.matrix)
+            except np.linalg.LinAlgError:
+                self.inv = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=0,check_finite=0)
+                if self.verbose:
+                     print '\x1b[5;31;46m'+'Warning: used approximation for the inverse'+ '\x1b[0m'
+            
+            try:
+                self.lower_inv = linalg.cholesky(self.inv, lower=1, check_finite=0, overwrite_a=0)
+            except np.linalg.LinAlgError:
+                v2 = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=1,check_finite=0)
+                self.lower_inv = linalg.cholesky(v2, lower=1, check_finite=0, overwrite_a=0)
+                if self.verbose:
+                     print '\x1b[5;31;46m'+'Warning: used approximation for the Cholesky of the inverse'+ '\x1b[0m'
     
-
-    def rvs_Gibbs(self, n):
-        s = {i:Gaussian_variable(self.d, mu=self.mu_rvs(), S = self.chol_prec_rvs(), method='chol_prec').rvs()[0] for i in xrange(n)}
-        return np.array(s.values())
-
-    def __update_all(self):
-        self.__sX()
-        self.__mu()
-        self.__emp_mu()
-        self.__XX_T()
-        self.__scale()
-        self.__cov()
-        self.__chol_cov()
-        self.__prec()
-        self.__chol_prec()
+        else:
+            self.inv = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=1,check_finite=0)
+            self.lower_inv = linalg.cholesky(self.inv, lower=1, check_finite=0, overwrite_a=0)
+        
+        return self.lower_inv
         
 
+    def __inv(self):
+        '''return the inverse of A'''
+        if self.lower_inv is None:
+            self.lower_inv = self.__chol_of_the_inv()
+        
+        return self.inv
+        
+
+    def r_1_update(self, X, pychud_im = pychud_im):
+        '''Returns a rank 1 update to the lower Cholesky decomposition of A. 
+        Returns the cholesky decomposition of A*, where A*=A+XX' and X is a d-dimensional vector.'''
+
+        chol_A = self.lower
+
+        if pychud_im:
+            return pychud.dchud(chol_A.T, X, overwrite_r=False).T
+        else:
+            for k in xrange(self.d):
+                r = math.sqrt((chol_A[k,k]**2)+(X[k]**2))
+                c = r/chol_A[k,k]
+                s = X[k]/chol_A[k,k]
+                chol_A[k,k] = r
+                for i in xrange(k+1, self.d):
+                    chol_A[i, k] = (chol_A[i,k]+ (s*X[i]))/c
+                    X[i] = (X[i]*c)-(s*chol_A[i,k])
+        return chol_A
+        
+    def r_1_downdate(self, X, pychud_im = pychud_im):
+        '''Perform a rank 1 downdate to the lower Cholesky decomposition of A. 
+        Returns the cholesky decomposition of A*, where A*=A-XX' and X is a d-dimensional vector.
+        The pychud method is faster and more stable'''
+        chol_A = self.lower
+        if self.verbose:
+            print '\x1b[5;31;46m'+'Warning: downdate assumed to be positive definite. But not guaranteed'+ '\x1b[0m'
+        if pychud_im:
+            return pychud.dchdd(chol_A.T, X, overwrite_r=False)[0].T
+        else:
+            for k in xrange(self.d):
+                a=abs(chol_A[k,k])
+                b=abs(X[k])
+                num = min([a,b])
+                den = max([a,b])
+                t = num/den
+                r = den*math.sqrt(1-(t*t))
+                c = r/chol_A[k,k]
+                s = X[k]/chol_A[k,k]
+                chol_A[k,k] = r
+                for i in xrange(k+1, self.d):
+                    chol_A[i, k] = (chol_A[i,k]- (s*X[i]))/c
+                    X[i] = (X[i]*c)-(s*chol_A[i,k])
+        
+        
+        return chol_A
+    
+    def log_determinant(self):
+        '''returns the log of the determinant of the A computed from its Cholesky decomposition'''
+        if self.method=='approximate':
+            try:
+                self.log_det = np.linalg.slogdet(self.matrix)[1]
+            except np.linalg.LinAlgError:
+                self.log_det = sum(2*np.log(np.diag(self.lower)))
+                print '\x1b[5;31;46m'+'Warning: used approximation for the determinant'+ '\x1b[0m'
+        else:
+            self.log_det = sum(2*np.log(np.diag(self.lower)))
+        
+        return self.log_det
+    
+    def determinant(self):
+        '''returns the determinant of the A computed from its Cholesky decomposition'''
+        self.det=math.exp(self.log_determinant())
+        return self.det
+        
+
+
+
+
+
+
+    
