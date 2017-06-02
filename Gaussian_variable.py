@@ -3,7 +3,7 @@ import numpy as np
 import math
 import scipy.linalg as linalg
 from Cholesky import Cholesky
-trm = linalg.get_blas_funcs('trmm')
+
 
 class Gaussian_variable:
     
@@ -27,6 +27,10 @@ class Gaussian_variable:
         self.prec = None
         
         self.chol_prec=None
+
+        self.delta = None
+        
+        self.Xi_Xi_T = None
         
 
         self.logp_=None
@@ -34,7 +38,7 @@ class Gaussian_variable:
 
     def __d(self, d=None):
         if d is None:
-            self.d=0
+            self.d=1
         else:
             try:
                 self.d = int(d)
@@ -119,109 +123,150 @@ class Gaussian_variable:
             if self.method=='cov':
                 self.cov = self.S
             elif self.method=='chol_cov':
-                self.cov = Cholesky(self.S).mat(self.S)
+                self.cov = Cholesky(self.S, method = 'lower').matrix
             elif self.method=='prec':
-                self.cov = Cholesky(self.S).inv()
+                self.cov = Cholesky(self.S)._Cholesky__inv()
             elif self.method=='chol_prec':
-                self.cov= Cholesky(self.S).inv(self.S)    
+                self.cov= Cholesky(self.S, method='lower')._Cholesky__inv()    
         return self.cov
     
     def __chol_cov(self):
         '''returns the Cholesky dec. of the covariance matrix'''
-        if self.S is None:
-            return np.eye(self.d)
-        elif self.method=='cov':
-            return Cholesky(self.S).lower()
-        elif self.method=='chol_cov':
-            return self.S
-        elif self.method=='prec':
-            return Cholesky(self.S).chol_of_the_inv()
-        elif self.method=='chol_prec':
-            return Cholesky(self.S).chol_of_the_inv(self.S)    
+        if self.d==1:
+            if self.method=='cov' or self.method=='chol_cov':
+                self.chol_cov=self.S
+            elif self.method=='prec' or self.method=='chol_prec':
+                self.chol_cov = 1./self.S
+        else:
+            if self.method=='cov':
+                self.chol_cov = Cholesky(self.S).lower
+            elif self.method=='chol_cov':
+                self.chol_cov = self.S
+            elif self.method=='prec':
+                self.chol_cov = Cholesky(self.S).chol_of_the_inv()
+            elif self.method=='chol_prec':
+                self.chol_cov= Cholesky(self.S, method='lower').chol_of_the_inv()    
+        return self.chol_cov  
     
     def __prec(self):
         '''returns the precision matrix'''
-        if self.S is None:
-            return np.eye(self.d)
-        elif self.method=='cov':
-            return Cholesky(self.S).inv()
-        elif self.method=='chol_cov':
-            return Cholesky(self.S).chol_of_the_inv(self.S)
-        elif self.method=='prec':
-            return self.S
-        elif self.method=='chol_prec':
-            return Cholesky(self.S).mat(self.S)
+        if self.d==1:
+            if self.method=='cov' or self.method=='chol_cov':
+                self.prec=1./self.S
+            elif self.method=='prec' or self.method=='chol_prec':
+                self.prec = self.S
+        else:
+            if self.method=='cov':
+                self.prec = Cholesky(self.S)._Cholesky__inv()
+            elif self.method=='chol_cov':
+                self.prec = Cholesky(self.S, method='lower')._Cholesky__inv()  
+            elif self.method=='prec':
+                self.prec = self.S
+            elif self.method=='chol_prec':
+                self.prec= Cholesky(self.S, method='lower').matrix    
+        return self.prec
     
     def __chol_prec(self):
         '''returns the Cholesky dec. of the precision matrix'''
-        if self.S is None:
-            return np.eye(self.d)
-        elif self.method=='cov':
-            return Cholesky(self.S).chol_of_the_inv()
-        elif self.method=='chol_cov':
-            return Cholesky(self.S).chol_of_the_inv(self.S)
-        elif self.method=='prec':
-            return Cholesky(self.S).lower()
-        elif self.method=='chol_prec':
-            return self.S
+        if self.d==1:
+            if self.method=='cov' or self.method=='chol_cov':
+                self.chol_prec=1./self.S
+            elif self.method=='prec' or self.method=='chol_prec':
+                self.chol_prec = self.S
+        else:
+            if self.method=='cov':
+                self.chol_prec = Cholesky(self.S).chol_of_the_inv()
+            elif self.method=='chol_cov':
+                self.chol_prec = Cholesky(self.S, method='lower').chol_of_the_inv()  
+            elif self.method=='prec':
+                self.chol_prec = Cholesky(self.S).lower
+            elif self.method=='chol_prec':
+                self.chol_prec= self.S
+        return self.chol_prec  
     
-    def delta(self):
-        'returns (Xi-mu)'''
-        return self.Xi-self.mu
-    def xi_xit(self):
+    def __delta(self):
+        '''returns (Xi-mu)'''
+        self.delta =  self.Xi-self.mu
+        return self.delta
+
+    def __Xi_Xi_T(self):
         '''returns the matrix XiXi' '''
-        return np.einsum('i,j->ij', self.Xi, self.Xi)
+        if d==1:
+            self.Xi_Xi_T = self.Xi**2
+        else:
+            self.Xi_Xi_T = np.einsum('i,j->ij', self.Xi, self.Xi)
+        return self.Xi_Xi_T
+
+    def logp(self):
         
+        '''Gaussian probability function.    
+        The equation is (Wikipedia or Kevin P. Murphy, 2007):
+        
+        --------
+        logpdf estimate of Xi'''
+                
+        if self.d==1:
+            #parametrized by the mean and prec.
+            pr = self.__prec()
+            self.logp_ =-0.5*math.log(2*math.pi) +0.5*math.log(pr)-0.5*(((self.__delta())**2)*(pr))
+            return self.logp_
+        
+        else:
+                    
+            cpm = self.__chol_prec()
+            
+            det = Cholesky(cpm, method='lower').log_determinant()
+            delta = self.__delta()
+            in_exp = delta.T.dot(Cholesky(cpm, method='lower').matrix).dot(delta)
+        
+            self.logp_ = (-0.5*self.d)*math.log(2*math.pi) + 0.5*det -0.5*in_exp
+            
+            return self.logp_
+    
+    def p(self):
+        '''returns the pdf estimate of Xi'''
+        self.p_= math.exp(self.logp())
+        return self.p_
+
+    def __r_mat(self, a_in_rad, vec):
+        '''take a 2 component vector and rotate by a given angle''' 
+        t_mat = np.array([[np.cos(a_in_rad), -1*np.sin(a_in_rad)], [np.sin(a_in_rad), np.cos(a_in_rad)]])
+        
+        return np.dot(t_mat, vec)
+    
+    def standard_normal_Gaussian(self, n):
+        '''generative implementation of a standard normal distribution'''
+        #define a radius using the square root of the exponential distribution
+        #where theta equals two.
+        rad = np.array([[0, math.sqrt(np.random.exponential(2))] for i in xrange(n)])
+        #rotate the radius by random uniform angle in the interval [0, 2pi],
+        #the coordinates will be samples from two independent standard normal dist.
+        norm_sample = np.array([self.__r_mat(np.random.uniform(0, 2*math.pi), i) for i in rad])
+        
+        return norm_sample
+    
+    def Box_Muller(self):
+        '''Box_Muller (1958) for a single draw from two independent standard normal distributions.'''
+        u_1 = np.random.uniform()
+        u_2 = np.random.uniform()
+        return np.array([math.sqrt(-2*math.log(u_1))*math.sin(2*math.pi*u_2), math.sqrt(-2*math.log(u_1))*math.cos(2*math.pi*u_2)])
+
     def rvs(self, n=1):
         '''returns a random multivariate Gaussian variable 
         to avoid matrix iversions, provide the precision matrix. Method has a slightly different 
         output than numpy or scipy's multivariate normal rvs, but has similar statistical properties.
         The algorithm is mentioned in the book 'Handbook of Monte Carlo Methods'
         from Kroese et al.(2011) (algorithm 5.2, pag. 155)'''
-        if self.d==0:
-            print "Can't generate rv from a 0 dimensional distribution"
-            return None       
-        else:
-            m = self.__chol_prec().T
-            Z = np.random.standard_normal(size=(self.d,n))
-            return self.mu + linalg.solve_triangular(m, Z, lower=0, overwrite_b=1, check_finite=0).T
+        pr = self.__chol_prec()
+        
+        if self.d==1:
+            return np.random.standard_normal(n)*(math.sqrt(1./pr))+self.mu
 
-    def logp(self):
-        
-        '''Normal probability function.    
-        The equation is (Wikipedia or Kevin P. Murphy, 2007):
-            (2pi)**(-0.5*d) |prec_m|**(0.5) exp[0.5(X-mu_v)' prec_m (x-mu_v)]
-        Should give the same result as scipy.stats.multivariate_normal(mu_v, inv(prec_m)).pdf(X)
-        
-        Outputs
-        --------
-        logpdf estimate of Xi'''
-        if self.d==0:
-            self.logp_ = 0
-            return self.logp_
-        elif self.d==1:
-            self.logp_ =-0.5*math.log(2*math.pi*self.S)-0.5*(((self.Xi-self.mu)**2)/(self.S))
-            return self.logp_
         else:
-            
-            pm = self.__prec()
-            cpm = self.__chol_prec()
-            det = Cholesky(cpm).log_determinant(cpm)
-            delta = self.delta()
-            in_exp = delta.T.dot(pm).dot(delta)
-        
-            self.logp_ = (-0.5*self.d)*math.log(2*math.pi) + 0.5*det -0.5*in_exp
-            return self.logp_
+            Z = np.random.standard_normal(size=(self.d,n))
+            return self.mu + linalg.solve_triangular(pr.T, Z, lower=0, overwrite_b=1, check_finite=0).T
+
     
-    def p(self):
-        '''returns the pdf estimate of Xi'''
-        if self.d==0:
-            self.p_=0
-            return self.p_
-        else:
-            
-            self.p_= math.exp(self.logp())
-            return self.p_
     
         
         
