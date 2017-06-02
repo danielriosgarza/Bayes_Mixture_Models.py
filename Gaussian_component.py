@@ -11,7 +11,7 @@ trm = linalg.get_blas_funcs('trmm')
 
 class Gaussian_component(Gaussian_variable):
     
-    '''Deals with multiple measurements of a Gaussian variable random variable.'''
+    '''Deals with multiple measurements of a Gaussian random variable.'''
     
     def __init__(self, d, kappa_0 = 0, v_0=0, mu_0=None, S_0=None, X=None):
         
