@@ -78,7 +78,7 @@ class Gaussian_variable:
             if self.d==1:
                 self.mu=0
             else:
-                self.mu = np.zeros(d)
+                self.mu = np.zeros(self.d)
         else:
             if self.d==1:
                 assert isinstance(mu, int) or isinstance(mu, float),\
