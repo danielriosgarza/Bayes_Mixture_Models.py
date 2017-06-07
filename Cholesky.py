@@ -118,7 +118,7 @@ class Cholesky:
             except np.linalg.LinAlgError:
                 self.inv = linalg.solve_triangular(self.upper, v1, lower=0,trans=0, overwrite_b=0,check_finite=0)
                 if self.verbose:
-                     print '\x1b[5;31;46m'+'Warning: used approximation for the inverse'+ '\x1b[0m'
+                     print '\x1b[5;31;46m'+'Warning: used approximation for the inverse '+ '\x1b[0m'
             
             try:
                 self.lower_inv = linalg.cholesky(self.inv, lower=1, check_finite=0, overwrite_a=0)
