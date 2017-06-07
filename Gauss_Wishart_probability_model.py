@@ -14,7 +14,7 @@ class Gauss_Wishart_model:
     
     def __init__(self, Gaussian_component):
         self.GaussComp = Gaussian_component
-        self.GaussComp._Gaussian_component__update_all() 
+        self.GaussComp._Gaussian_component__update_params(scale=1, prec=1) 
         self.d = self.GaussComp.d
         self.n = self.GaussComp.n
         self.prec_mu_norm_Z = None #normalizing constant of the prior probability
