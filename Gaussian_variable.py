@@ -143,9 +143,9 @@ class Gaussian_variable:
             elif self.method=='chol_cov':
                 self.chol_cov = self.S
             elif self.method=='prec':
-                self.chol_cov = Cholesky(self.S).chol_of_the_inv()
+                self.chol_cov = Cholesky(self.S)._Cholesky__chol_of_the_inv()
             elif self.method=='chol_prec':
-                self.chol_cov= Cholesky(self.S, method='lower').chol_of_the_inv()    
+                self.chol_cov= Cholesky(self.S, method='lower')._Cholesky__chol_of_the_inv()
         return self.chol_cov  
     
     def __prec(self):
@@ -175,9 +175,9 @@ class Gaussian_variable:
                 self.chol_prec = self.S
         else:
             if self.method=='cov':
-                self.chol_prec = Cholesky(self.S).chol_of_the_inv()
+                self.chol_prec = Cholesky(self.S)._Cholesky__chol_of_the_inv()
             elif self.method=='chol_cov':
-                self.chol_prec = Cholesky(self.S, method='lower').chol_of_the_inv()  
+                self.chol_prec = Cholesky(self.S, method='lower')._Cholesky__chol_of_the_inv()
             elif self.method=='prec':
                 self.chol_prec = Cholesky(self.S).lower
             elif self.method=='chol_prec':
@@ -260,11 +260,14 @@ class Gaussian_variable:
         pr = self.__chol_prec()
         
         if self.d==1:
-            return np.random.standard_normal(n)*(math.sqrt(1./pr))+self.mu
+            return float(np.random.standard_normal(n)*(math.sqrt(1./pr))+self.mu)
 
         else:
             Z = np.random.standard_normal(size=(self.d,n))
-            return self.mu + linalg.solve_triangular(pr.T, Z, lower=0, overwrite_b=1, check_finite=0).T
+            if n==1:
+                return (self.mu + linalg.solve_triangular(pr.T, Z, lower=0, overwrite_b=1, check_finite=0).T).flatten()
+            else:
+                return (self.mu + linalg.solve_triangular(pr.T, Z, lower=0, overwrite_b=1, check_finite=0).T)
 
     
     
