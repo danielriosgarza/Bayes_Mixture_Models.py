@@ -11,7 +11,7 @@ trm = linalg.get_blas_funcs('trmm')
 
 class Gaussian_component(Gaussian_variable):
     
-    '''Deals with multiple measurements of a Gaussian random variable.'''
+    '''Deals with multiple measurements of a Gaussian variable random variable.'''
     
     def __init__(self, d, kappa_0 = 0, v_0=0, mu_0=None, S_0=None, X=None):
         
@@ -41,6 +41,8 @@ class Gaussian_component(Gaussian_variable):
         self.emp_mu = self.__emp_mu()
         
         self.scale = None
+        
+        self.chol_scale=None
 
         self.inv_scale = None
         
@@ -60,22 +62,21 @@ class Gaussian_component(Gaussian_variable):
         if X is None:
             self.n =0
         elif self.d==1:
-            self.n = len(X.flatten())
+            self.n = len(np.array(X).flatten())
         else:
-            self.n=len(X)
+            self.n=len(X.flatten())/self.d
         return self.n
     
     def __X(self, X=None):
         if X is None:
-            self.X = self._Gaussian_variable__Xi()
-            if self.d>1:
-                self.X.shape=(1,self.d)
+            self.X = np.array(self._Gaussian_variable__Xi())
+            self.X.shape=(1,self.d)
         
         elif self.d==1:
-            if X.shape!=(self.d,0):
+            if np.array(X).shape!=(self.d,0) and self.n>1:
                 print '\x1b[5;31;46m'+'Warning: data was flattened'+ '\x1b[0m'
-            self.X = X
-            self.X.shape = (len(X.flatten()),1)
+            self.X = np.array(X)
+            self.X.shape = (len(self.X.flatten()),1)
             
             
         else:
@@ -142,6 +143,16 @@ class Gaussian_component(Gaussian_variable):
         
         return self.scale
     
+    def __chol_scale(self):
+        if self.scale is None:
+            self.scale = self.__scale()
+        if self.d==1:
+            self.chol_scale=self.scale
+        else:
+            self.chol_scale = Cholesky(self.scale).lower
+        
+        return self.chol_scale
+    
     def __inv_scale(self):
         if self.scale is None:
             self.scale = self.__scale()
@@ -170,7 +181,7 @@ class Gaussian_component(Gaussian_variable):
                 self.cov = 1.
                 
             else:
-                self.cov= 1. + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
+                self.cov= np.eye(self.d) + self.kappa_0*np.einsum('i,j->ji', self.mu_0, self.mu_0)
                 
         else:
             
@@ -184,17 +195,26 @@ class Gaussian_component(Gaussian_variable):
             
     def __chol_cov(self):
         cov = self.__cov()
-        self.chol_cov = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_cov()
+        if np.sum(cov!=0)==0:
+            self.chol_cov=cov
+        else:
+            self.chol_cov = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_cov()
         return self.chol_cov
         
     def __prec(self):
         cov = self.__cov()
-        self.prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__prec()
+        if np.sum(cov!=0)==0:
+            self.prec=cov
+        else:
+            self.prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__prec()
         return self.prec
     
     def __chol_prec(self):
         cov = self.__cov()
-        self.chol_prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_prec()
+        if np.sum(cov!=0)==0:
+            self.chol_prec=cov
+        else:
+            self.chol_prec = Gaussian_variable(d=self.d, S=cov)._Gaussian_variable__chol_prec()
         return self.chol_prec
 
     def chol_prec_rvs(self):
@@ -241,7 +261,7 @@ class Gaussian_component(Gaussian_variable):
 
     def prec_rvs(self):
         if self.d==1:
-            return 1./self.chol_prec_rvs()
+            return self.chol_prec_rvs()
         else:
             return Cholesky(self.chol_prec_rvs(), method='lower').matrix
 
@@ -265,21 +285,47 @@ class Gaussian_component(Gaussian_variable):
             chol_prec = self.chol_prec_rvs()
         
         if self.n==0:
-            return Gaussian_variable(d= self.d, mu=self.mu, S = chol_prec, method='chol_prec').rvs().flatten()
+            return Gaussian_variable(d= self.d, mu=self.mu, S = chol_prec, method='chol_prec').rvs()
         else:
-            return Gaussian_variable(d= self.d, mu=self.mu, S = math.sqrt(self.kappa_0+self.n)*chol_prec, method='chol_prec').rvs().flatten()
+            
+            return Gaussian_variable(d= self.d, mu=self.mu, S = math.sqrt(self.kappa_0+self.n)*chol_prec, method='chol_prec').rvs()
 
     
-    def rvs(self, n=1):
+    def rvs(self):
         chol_prec = self.chol_prec_rvs()
         mu = self.mu_rvs(chol_prec)
-        return Gaussian_variable(self.d, mu=mu, S = chol_prec, method='chol_prec').rvs().flatten()
+        return Gaussian_variable(self.d, mu=mu, S = chol_prec, method='chol_prec').rvs()
+
+    def rvs_coll(self):
+        v =self.v_0+self.n
         
-    def s_down_date(self, ind_X, cov=False, chol_cov=False, prec=False, chol_prec=False):
+        if v>self.d:
+            df = v + 1
+        else:
+            df = self.d+1
+
+        if self.d>1:
+            df = df-self.d
+            
+            x = np.sqrt(df/np.random.chisquare(df))
+            
+            scale = np.sqrt(((self.kappa_0 +self.n + 1)/((self.kappa_0+self.n)*(df-self.d+1))))*self.__chol_scale()
+            
+            return self.mu+(scale.dot(np.random.standard_normal(self.d))*x)
         
-        if self.n is 0:
-            print 'Failled to downdate: component is empty'
+        else:
+             df = v-1
+             scale = ((self.kappa_0+self.n+1.)/((self.kappa_0+self.n)*(self.kappa_0+self.n)))*self.__chol_scale()
+             
+             return self.mu+np.random.standard_t(df)*math.sqrt(scale)
+
+        
+    def down_date(self, ind_X):
+        
+        if self.n ==0:
+            print 'component is already empty'
             return None
+        
         try:
             dwnX = self.X[ind_X]
         except IndexError:
@@ -288,199 +334,133 @@ class Gaussian_component(Gaussian_variable):
         
         if self.n-1==0:
             print 'Component is now empty. Setting parameters to priors'
+            
             self.n=0
-            self.mu = self.GI.mu
-            if self.cov is None:
-                pass
-            else:
-                self.cov= self.GI._Gaussian_variable__cov()
-            if self.chol_cov is None:
-                pass
-            else:
-                self.chol_cov = self.GI._Gaussian_variable__chol_cov()
-            if self.prec is None:
-                pass
-            else:
-                self.prec= self.GI._Gaussian_variable__prec()
-            if self.chol_prec is None:
-                pass
-            else:
-                self.chol_prec = self.GI._Gaussian_variable__chol_prec()
-            
-            return None
-            
-        n_c = self.n        
-        self.n-=1
-        mu_c = self.mu.copy()
-
-        self.mu = (((self.kappa_0+n_c)*mu_c)-dwnX)/(self.kappa_0+self.n)
-
-
-        if self.sX is None:
-            pass
-        else:
-            self.sX-=dwnX
-        
-                
-        if self.X is None:
-            pass
-        else:
-            ind =np.ones(len(self.X), dtype=np.bool)
-            ind[ind_X]=0
-            self.X = self.X[ind]
-        
-        if self.XX_T is None:
-            pass
-        else:
-            self.XX_T -= np.einsum('i,j->ij', dwnX, dwnX)
-        
-        if self.cov is None:
-            pass
-        elif cov:
-            a= self.__cov()
-        else:
-            pass
-        
-        if self.chol_cov is None:
-            pass
-        elif chol_cov:
-            up1 = math.sqrt(self.kappa_0+n_c)*mu_c
-            down1 = math.sqrt(self.kappa_0+self.n)*self.mu
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(dwnX, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(up1, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(down1, chol_A=self.chol_cov)
-        else:
-            pass
-                    
-        if self.prec is None:
-            pass
-        elif prec:
-            a= self.__prec()
-        else:
-            pass
-        
-        if self.chol_prec is None:
-            pass
-        elif chol_prec:
-            a= self.__chol_prec()
-        else:
-            pass
-            
-    
-    
-    def s_up_date(self, Xi, cov=False, chol_cov=False, prec=False, chol_prec=False):
-        
-               
-
-        if self.n==0:
-            self.n=1
-            self.X = Xi
+            self.X = self.__X()
+            self.sX = self.__sX()
+            self.emp_mu = self.__emp_mu()
             self.mu = self.__mu()
-            if self.XX_T is None:
-                pass
-            else:
-                self.XX_T= self.__XX_T()
+            if self.scale is not None:
+                self.scale=self.__scale()
+            if self.inv_scale is not None:
+                self.inv_scale=self.__inv_scale()
+            if self.cov is not None:
+                self.cov=self.__cov()
+            if self.prec is not None:
+                self.prec=self.__prec()
+            if self.XX_T is not None:
+                self.XX_T = self.__XX_T()
+            if self.chol_cov is not None:
+                self.chol_cov = self.__chol_cov()
+            if self.chol_prec is not None:
+                self.chol_prec = self.__chol_prec()
+        
+        else:
+            ind = np.ones(self.n, dtype=np.bool)
+            ind[ind_X]=0
             
-            if self.cov is None:
-                pass
-            else:
-                self.cov= self.__cov()
+            self.n-=1
+            self.X = self.X[ind]
+            self.sX = self.__sX()
+            self.emp_mu = self.__emp_mu()
+            self.mu = self.__mu()
             
-            if self.chol_cov is None:
-                pass
-            else:
-                self.cov= self.__chol_cov()
-            
-            if self.prec is None:
-                pass
-            else:
-                self.prec= self.__prec()
-                                    
-            
-            if self.chol_prec is None:
-                pass
-            else:
+            if self.scale is not None:
+                self.scale=self.__scale()
+            if self.inv_scale is not None:
+                self.inv_scale=self.__inv_scale()
+            if self.cov is not None:
+                self.cov=self.__cov()
+            if self.prec is not None:
+                self.prec=self.__prec()
+            if self.XX_T is not None:
+                self.XX_T = self.__XX_T()
+            if self.chol_cov is not None:
+                self.chol_cov = self.__chol_cov()
+            if self.chol_prec is not None:
                 self.chol_prec = self.__chol_prec()
             
-            return None
         
-          
-        n_c = self.n        
-        self.n+=1
-        mu_c = self.mu.copy()
-        
-        
-
-        self.mu = (((self.kappa_0+n_c)*mu_c)+Xi.flatten())/(self.kappa_0+self.n)
-
-        if self.sX is None:
-            pass
-        else:
-            self.sX+=Xi.flatten()
-        
-                
-        if self.X is None:
-            pass
-        else:
-            self.X = np.concatenate([self.X, Xi])
-        
-        if self.XX_T is None:
-            pass
-        else:
-            self.XX_T += np.einsum('i,j->ij', Xi.flatten(), Xi.flatten())
-        
-        if self.cov is None:
-            pass
-        elif cov:
-            a= self.__cov()
-        else:
-            pass
-        
-        if self.chol_cov is None:
-            pass
-        elif chol_cov:
-            up1 = math.sqrt(self.kappa_0+n_c)*mu_c
-            down1 = math.sqrt(self.kappa_0+self.n)*self.mu
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(Xi, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_update(up1, chol_A = self.chol_cov)
-            self.chol_cov = Cholesky(self.chol_cov).r_1_downdate(down1, chol_A=self.chol_cov)
-        else:
-            pass
             
-        if self.prec is None:
-            pass
-        elif prec:
-            a= self.__prec()
+    
+    
+    def up_date(self, Xi):
+        
+        if self.n==0:
+            self.n = self.__n(Xi)
+            self.X = self.__X(Xi)
+            self.sX = self.__sX(Xi)
+            self.emp_mu = self.__emp_mu()
+            self.mu = self.__mu()
+            if self.scale is not None:
+                self.scale=self.__scale()
+            if self.inv_scale is not None:
+                self.inv_scale=self.__inv_scale()
+            if self.cov is not None:
+                self.cov=self.__cov()
+            if self.prec is not None:
+                self.prec=self.__prec()
+            if self.XX_T is not None:
+                self.XX_T = self.__XX_T()
+            if self.chol_cov is not None:
+                self.chol_cov = self.__chol_cov()
+            if self.chol_prec is not None:
+                self.chol_prec = self.__chol_prec()
+        
         else:
-            pass
-        
-        if self.chol_prec is None:
-            pass
-        elif chol_prec:
-            a= self.__chol_prec()
-        else:
-            pass
-        
-        
-        
-    
+            
+            try:
+                Xi.shape=(1, self.d)
+            except ValueError:
+                print '\n\nError: to add a data-point to a Gaussian Component, dimensions should be (1,d)\n\n'
+            
+            self.X = np.concatenate([self.X, Xi])
+            self.n = self.__n(Xi)
+            self.sX = self.__sX(Xi)
+            self.emp_mu = self.__emp_mu()
+            self.mu = self.__mu()
+            if self.scale is not None:
+                self.scale=self.__scale()
+            if self.inv_scale is not None:
+                self.inv_scale=self.__inv_scale()
+            if self.cov is not None:
+                self.cov=self.__cov()
+            if self.prec is not None:
+                self.prec=self.__prec()
+            if self.XX_T is not None:
+                self.XX_T = self.__XX_T()
+            if self.chol_cov is not None:
+                self.chol_cov = self.__chol_cov()
+            if self.chol_prec is not None:
+                self.chol_prec = self.__chol_prec()   
 
-    
-    
-
-    def rvs_Gibbs(self, n):
-        s = {i:Gaussian_variable(self.d, mu=self.mu_rvs(), S = self.chol_prec_rvs(), method='chol_prec').rvs()[0] for i in xrange(n)}
-        return np.array(s.values())
-
-    def __update_all(self):
-        self.__sX()
-        self.__mu()
-        self.__emp_mu()
-        self.__XX_T()
-        self.__scale()
-        self.__cov()
-        self.__chol_cov()
-        self.__prec()
-        self.__chol_prec()
         
+      
+    def __update_params(self, scale=False, chol_scale=False, inv_scale=False, chol_inv_scale=False, \
+    XX_T=False, cov=False, chol_cov=False, prec=False, chol_prec=False):
+        if scale:
+            self.__scale()
+        if chol_scale:
+            self.__chol_scale()
+        if inv_scale:
+            self.__inv_scale()
+        
+        if chol_inv_scale:
+            self.__chol_inv_scale()
+        
+        if XX_T:
+            self.__XX_T
+        
+        if cov:
+            self.__cov()
+        
+        if chol_cov:
+            self.__chol_cov()
+        
+        if prec:
+            self.__prec()
+        
+        if chol_prec:
+            self.__chol_prec()
+            
 
