@@ -14,7 +14,7 @@ class Gauss_Wishart_model:
     
     def __init__(self, Gaussian_component):
         self.GaussComp = Gaussian_component
-        self.GaussComp._Gaussian_component__update_params(scale=1, prec=1) 
+        self.GaussComp._Gaussian_component__update_params(scale=1, prec=1, XX_T=1) 
         self.d = self.GaussComp.d
         self.n = self.GaussComp.n
         self.prec_mu_norm_Z = None #normalizing constant of the prior probability
@@ -328,14 +328,9 @@ class Gauss_Wishart_model:
         
         return self.post_lp
           
-    def post_pred_lp_(self, Xi, prec, mu, kappa,v, n,d):
-        df = self.__df(v,d)
-        df= df+n-d
-        if n==0:
-            n=1
-        M = (((kappa+n)*df)/(kappa+n+1)) * prec
+    def post_pred_lp_(self, Xi):
+        assert self.GaussComp is not None, 'Function only supported for Gaussian components'
+        GC = self.GaussComp.copy()
+        GC.up_date(Xi)
+        return Gauss_Wishart_model(GC).marginal_lp_() - self.marginal_lp_()
         
-        self.post_pred_lp = gamlog(0.5*(df+d)) - gamlog(0.5*df) + 0.5*Cholesky(M).log_determinant()-0.5*d*math.log(df*math.pi)\
-        - 0.5*(df+d)*(math.log(1+(1/df)*np.einsum('i,ij,j->', Xi-mu, M, Xi-mu)))
-        
-        return self.post_pred_lp
