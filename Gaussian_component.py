@@ -6,10 +6,10 @@ from Cholesky import Cholesky
 from Gaussian_variable import Gaussian_variable
 import random
 trm = linalg.get_blas_funcs('trmm')
+from copy import copy
 
 
-
-class Gaussian_component(Gaussian_variable):
+class Gaussian_component(object, Gaussian_variable):
     
     '''Deals with multiple measurements of a Gaussian variable random variable.'''
     
@@ -415,8 +415,8 @@ class Gaussian_component(Gaussian_variable):
                 print '\n\nError: to add a data-point to a Gaussian Component, dimensions should be (1,d)\n\n'
             
             self.X = np.concatenate([self.X, Xi])
-            self.n = self.__n(Xi)
-            self.sX = self.__sX(Xi)
+            self.n = self.__n(self.X)
+            self.sX = self.__sX(self.X)
             self.emp_mu = self.__emp_mu()
             self.mu = self.__mu()
             if self.scale is not None:
@@ -463,4 +463,11 @@ class Gaussian_component(Gaussian_variable):
         if chol_prec:
             self.__chol_prec()
             
-
+    def __copy__(self):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        result.__dict__.update(self.__dict__)
+        return result
+    
+    def copy(self):
+        return self.__copy__()
